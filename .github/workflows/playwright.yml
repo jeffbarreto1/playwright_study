@@ -25,10 +25,14 @@ jobs:
         run: npx playwright install --with-deps
       - name: Run Playwright tests (shard ${{ matrix.part }}/${{ matrix.total }})
         run: npx playwright test --shard=${{ matrix.part }}/${{ matrix.total }} --reporter json
+      - name: List test-results for debug
+        run: ls -l test-results || echo "No test-results found"
       - name: Save test results
         run: |
           mkdir -p shard-results
-          cp -r test-results shard-results/
+          if [ -d test-results ]; then cp -r test-results shard-results/; else echo "No test-results to copy"; fi
+      - name: List shard-results for debug
+        run: ls -l shard-results || echo "No shard-results found"
       - name: Upload shard results
         uses: actions/upload-artifact@v4
         with:
