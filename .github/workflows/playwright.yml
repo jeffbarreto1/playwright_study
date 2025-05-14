@@ -48,9 +48,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: all-results
+      - name: List all-results for debug
+        run: ls -R all-results
       - name: Merge Playwright reports
-        run: |
-          npx playwright merge-reports --reporter html ./all-results/*
+        run: npx playwright merge-reports --reporter html all-results/*/test-results
       - name: Upload merged report
         uses: actions/upload-artifact@v4
         with:
