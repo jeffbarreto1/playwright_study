@@ -23,14 +23,17 @@ jobs:
         run: npm ci
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
-      - name: Run Playwright tests
-        run: npx playwright test --shard=${{ matrix.part }}/${{ matrix.total }}
-      - name: Upload report artifact
-        if: ${{ !cancelled() }}
+      - name: Run Playwright tests (shard ${{ matrix.part }}/${{ matrix.total }})
+        run: npx playwright test --shard=${{ matrix.part }}/${{ matrix.total }} --reporter json
+      - name: Save test results
+        run: |
+          mkdir -p shard-results
+          cp -r test-results shard-results/
+      - name: Upload shard results
         uses: actions/upload-artifact@v4
         with:
-          name: report-${{ matrix.part }}-of-${{ matrix.total }}
-          path: playwright-report
+          name: shard-${{ matrix.part }}-of-${{ matrix.total }}
+          path: shard-results/
 
   merge-reports:
     if: ${{ always() }}
@@ -41,13 +44,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-      - name: Download all reports
+      - name: Download all shard results
         uses: actions/download-artifact@v4
         with:
-          path: all-reports
+          path: all-results
       - name: Merge Playwright reports
         run: |
-          npx playwright merge-reports --reporter html ./all-reports/*
+          npx playwright merge-reports --reporter html ./all-results/*
       - name: Upload merged report
         uses: actions/upload-artifact@v4
         with:
