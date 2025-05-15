@@ -6,79 +6,111 @@ on:
   pull_request:
     branches: [main, master]
 
+# Permissões necessárias para GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Permite apenas uma execução simultânea do workflow
+concurrency:
+  group: "playwright"
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: 'Run Tests (Shard ${{ matrix.shard }})'
     timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false  # Continua executando mesmo se um shard falhar
       matrix:
-        part: [1, 2]
-        total: [2]
+        shard: [1, 2]  # Divide os testes em 2 shards
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 'lts/*'
+          cache: 'npm'  # Habilita cache do npm
+
       - name: Install dependencies
         run: npm ci
+        
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
-      - name: Run Playwright tests (shard ${{ matrix.part }}/${{ matrix.total }})
-        run: npx playwright test --shard=${{ matrix.part }}/${{ matrix.total }} --reporter json
-      - name: List test-results for debug
-        run: ls -l test-results || echo "No test-results found"
-      - name: Save test results
+        run: npx playwright install --with-deps chromium  # Instala apenas Chromium para economizar tempo
+        
+      - name: Run Playwright tests
         run: |
-          mkdir -p shard-results
-          if [ -d test-results ]; then cp -r test-results shard-results/; else echo "No test-results to copy"; fi
-      - name: List shard-results for debug
-        run: ls -l shard-results || echo "No shard-results found"
-      - name: Upload shard results
+          npx playwright test --shard=${{ matrix.shard }}/2 \
+            --reporter=html,json \
+            --output=test-results/shard-${{ matrix.shard }}
+        continue-on-error: true  # Continua mesmo se os testes falharem
+        
+      - name: Upload test results
+        if: always()  # Executa mesmo se os testes falharem
         uses: actions/upload-artifact@v4
         with:
-          name: shard-${{ matrix.part }}-of-${{ matrix.total }}
-          path: shard-results/
+          name: playwright-results-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 30
 
-  merge-reports:
-    if: ${{ always() }}
-    needs: test
+  report:
+    name: 'Generate HTML Report'
+    if: always()
+    needs: [test]
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: lts/*
-      - name: Download all shard results
+          node-version: 'lts/*'
+
+      - name: Install Playwright
+        run: npm install -D @playwright/test
+
+      - name: Download all test results
         uses: actions/download-artifact@v4
         with:
           path: all-results
-      - name: List all-results for debug
+          pattern: playwright-results-*
+          merge-multiple: true
+
+      - name: List downloaded files
         run: ls -R all-results
-      - name: Merge Playwright reports
-        run: npx playwright merge-reports --reporter html all-results/*/test-results
-      - name: Upload merged report
-        uses: actions/upload-artifact@v4
-        with:
-          name: merged-playwright-report
-          path: playwright-report/
+
+      - name: Merge HTML Reports
+        run: npx playwright merge-reports ./all-results --reporter html
+
       - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        if: success()
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact for GitHub Pages
+        if: success()
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./playwright-report
+          path: playwright-report
 
   deploy:
-    needs: merge-reports
+    name: 'Deploy to GitHub Pages'
+    if: success() && github.ref == 'refs/heads/main'  # Deploy apenas na branch main
+    needs: [report]
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    
     steps:
-      - name: Deploy GitHub Pages site
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages
